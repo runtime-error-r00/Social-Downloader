@@ -20,21 +20,61 @@ class DownloadEngine:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
-        # Parse available formats (filtering for standard usable formats)
-        formats = []
+        formats_dict = {}
+        
         for f in info.get('formats', []):
-            if f.get('vcodec') != 'none' or f.get('acodec') != 'none':
-                fmt = FormatOption(
-                    format_id=f.get('format_id', ''),
-                    resolution=f.get('format_note') or f.get('resolution') or 'Audio Only',
-                    ext=f.get('ext', ''),
-                    filesize_approx=f.get('filesize') or f.get('filesize_approx') or 0,
-                    has_video=f.get('vcodec') != 'none',
-                    has_audio=f.get('acodec') != 'none'
-                )
-                formats.append(fmt)
+            vcodec = f.get('vcodec')
+            acodec = f.get('acodec')
+            
+            # Controlliamo se il formato contiene video, audio, o entrambi
+            has_video = (vcodec != 'none' and vcodec is not None)
+            has_audio = (acodec != 'none' and acodec is not None)
+            
+            if not has_video and not has_audio:
+                continue # Saltiamo formati strani come immagini o storyboard
 
-        formats = formats[-5:] # Grab the last 5 (usually the highest quality ones)
+            height = f.get('height')
+            
+            # Determiniamo la categoria del formato
+            if not has_video and has_audio:
+                res_key = "Audio Only"
+                # Per l'audio, diciamo a yt-dlp di scaricare solo questo ID
+                download_expr = f.get('format_id')
+                ext = f.get('ext', 'm4a') # Spesso l'audio nativo è m4a o webm
+            elif height:
+                res_key = f"{height}p"
+                # Se il video non ha l'audio integrato, creiamo un'espressione
+                # che ordini a yt-dlp di scaricare il video + il miglior audio disponibile
+                if not has_audio:
+                    download_expr = f"{f.get('format_id')}+bestaudio/best"
+                else:
+                    download_expr = f.get('format_id')
+                ext = f.get('ext', 'mp4')
+            else:
+                res_key = "Standard"
+                download_expr = f.get('format_id')
+                ext = f.get('ext', 'mp4')
+
+            fmt = FormatOption(
+                format_id=download_expr, 
+                resolution=res_key,
+                ext=ext,
+                filesize_approx=f.get('filesize') or f.get('filesize_approx') or 0,
+                has_video=has_video,
+                has_audio=has_audio
+            )
+            
+            # yt-dlp elenca i formati dal peggiore al migliore.
+            # Sovrascrivendo la chiave nel dizionario, teniamo solo il migliore per ogni risoluzione.
+            formats_dict[res_key] = fmt
+
+        # Riordiniamo la lista per presentarla all'utente dalla qualità più bassa alla più alta
+        ordered_keys = [
+            "Audio Only", "144p", "240p", "360p", "480p", 
+            "720p", "1080p", "1440p", "2160p", "Standard"
+        ]
+        
+        formats = [formats_dict[k] for k in ordered_keys if k in formats_dict]
         provider = ProviderDetector.detect(url)
 
         return VideoMetadata(
@@ -48,7 +88,7 @@ class DownloadEngine:
         )
 
     def download(self, url: str, format_id: str, output_dir: str, progress_callback: Callable[[DownloadProgress], None]) -> bool:
-        """Downloads the video using the specified format ID to the chosen directory."""
+        """Downloads the video using the specified format expression to the chosen directory."""
         
         os.makedirs(output_dir, exist_ok=True)
         
@@ -70,11 +110,16 @@ class DownloadEngine:
             elif d['status'] == 'finished':
                 progress_callback(DownloadProgress(status="finished", percentage=100.0, speed_str="0", eta_str="00:00"))
 
-        # Intelligently request audio alongside the requested video format
-        if format_id == 'best':
-            download_format = 'bestvideo+bestaudio/best'
-        else:
-            download_format = f"{format_id}+bestaudio/best"
+        download_format = 'bestvideo+bestaudio/best' if format_id == 'best' else format_id
+
+        # --- NOVITÀ: Calcoliamo il percorso assoluto esatto della cartella bin ---
+        # __file__ è questo file (app/core/downloader.py)
+        # Saliamo di tre cartelle per arrivare alla root del progetto, poi aggiungiamo 'bin'
+        current_file_path = os.path.abspath(__file__)
+        core_dir = os.path.dirname(current_file_path)
+        app_dir = os.path.dirname(core_dir)
+        project_root = os.path.dirname(app_dir)
+        ffmpeg_absolute_path = os.path.join(project_root, 'bin')
 
         ydl_opts = {
             'format': download_format,
@@ -83,8 +128,10 @@ class DownloadEngine:
             'no_warnings': True,
             'noplaylist': True,
             'progress_hooks': [yt_dlp_hook],
-            # Bypass YouTube blocks by spoofing the client
-            'extractor_args': {'youtube': ['player_client=android,web']}
+            'extractor_args': {'youtube': ['player_client=android,web']},
+            'merge_output_format': 'mp4',
+            # Passiamo il percorso assoluto calcolato dinamicamente
+            'ffmpeg_location': ffmpeg_absolute_path  
         }
 
         try:
