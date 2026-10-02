@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments (if you use one later)
+venv/
+env/
+.venv/
+
+# Downloaded media
+*.mp4
+*.webm
+*.mkv
+*.mp3
+*.m4a
+
+# OS files
+.DS_Store
+Thumbs.db
