@@ -34,7 +34,7 @@ class MainWindow(QMainWindow):
         # 1. URL Input Section
         url_layout = QHBoxLayout()
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("Paste video URL here (e.g., YouTube, TikTok, Instagram)...")
+        self.url_input.setPlaceholderText("Paste video URL here (e.g., YouTube, X, Instagram)...")
         self.url_input.setMinimumHeight(30)
         self.analyze_btn = QPushButton("Analyze")
         self.analyze_btn.setMinimumHeight(30)

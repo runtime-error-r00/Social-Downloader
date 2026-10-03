@@ -1,9 +1,7 @@
-import sys
 import os
+import sys
 import yt_dlp
-from typing import Callable, Optional
-from app.models.domain import VideoMetadata, FormatOption, Provider, DownloadProgress
-from app.core.provider_detector import ProviderDetector
+from app.models.domain import VideoMetadata, FormatOption, DownloadProgress
 
 class DownloadEngine:
     def analyze(self, url: str) -> VideoMetadata:
@@ -14,7 +12,7 @@ class DownloadEngine:
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
-            # Bypass YouTube blocks by spoofing the client
+            # Manteniamo solo il trucco per bypassare i limiti di velocità di YouTube
             'extractor_args': {'youtube': ['player_client=android,web']}
         }
 
@@ -23,43 +21,49 @@ class DownloadEngine:
 
         formats_dict = {}
         
+        # Logica flessibile per gestire i formati strani di Twitter e Instagram
         for f in info.get('formats', []):
             vcodec = f.get('vcodec')
             acodec = f.get('acodec')
+            ext = f.get('ext', 'mp4')
             
-            has_video = (vcodec != 'none' and vcodec is not None)
-            has_audio = (acodec != 'none' and acodec is not None)
+            is_audio_only = (vcodec == 'none')
+            is_video_only = (acodec == 'none')
             
-            if not has_video and not has_audio:
-                continue
+            if is_audio_only and is_video_only:
+                continue 
 
             height = f.get('height')
+            format_id = f.get('format_id', 'best')
             
-            if not has_video and has_audio:
+            if is_audio_only:
                 res_key = "Audio Only"
-                download_expr = f.get('format_id')
-                ext = f.get('ext', 'm4a')
+                download_expr = format_id
             elif height:
                 res_key = f"{height}p"
-                if not has_audio:
-                    download_expr = f"{f.get('format_id')}+bestaudio/best"
-                else:
-                    download_expr = f.get('format_id')
-                ext = f.get('ext', 'mp4')
+                download_expr = f"{format_id}+bestaudio/best" if is_video_only else format_id
             else:
-                res_key = "Standard"
-                download_expr = f.get('format_id')
-                ext = f.get('ext', 'mp4')
+                # Fallback se la piattaforma non fornisce l'altezza esatta
+                res_str = str(f.get('resolution', ''))
+                if 'x' in res_str:
+                    try:
+                        h = res_str.split('x')[1]
+                        res_key = f"{h}p"
+                    except:
+                        res_key = "Standard"
+                else:
+                    res_key = "Standard"
+                    
+                download_expr = format_id
 
             fmt = FormatOption(
                 format_id=download_expr, 
                 resolution=res_key,
                 ext=ext,
                 filesize_approx=f.get('filesize') or f.get('filesize_approx') or 0,
-                has_video=has_video,
-                has_audio=has_audio
+                has_video=not is_audio_only,
+                has_audio=not is_video_only
             )
-            
             formats_dict[res_key] = fmt
 
         ordered_keys = [
@@ -67,50 +71,63 @@ class DownloadEngine:
             "720p", "1080p", "1440p", "2160p", "Standard"
         ]
         
-        formats = [formats_dict[k] for k in ordered_keys if k in formats_dict]
-        provider = ProviderDetector.detect(url)
+        parsed_formats = [formats_dict[k] for k in ordered_keys if k in formats_dict]
+        
+        # L'opzione 'Auto' è vitale per scaricare da Twitter e Instagram senza errori
+        best_fmt = FormatOption(
+            format_id="best",
+            resolution="Best Quality (Auto)",
+            ext="mp4",
+            filesize_approx=0,
+            has_video=True,
+            has_audio=True
+        )
+        parsed_formats.insert(0, best_fmt) 
+
+        class DynamicProvider:
+            def __init__(self, name):
+                self.name = name.upper()
+
+        extractor_name = info.get('extractor', 'UNKNOWN')
+        provider = DynamicProvider(extractor_name)
+
+        raw_duration = info.get('duration')
+        safe_duration = int(raw_duration) if raw_duration else 0
 
         return VideoMetadata(
             url=url,
             title=info.get('title', 'Unknown Title'),
-            duration=info.get('duration', 0),
+            duration=safe_duration,
             thumbnail_url=info.get('thumbnail', ''),
             provider=provider,
             uploader=info.get('uploader', 'Unknown Uploader'),
-            available_formats=formats
+            available_formats=parsed_formats
         )
 
-    def download(self, url: str, format_id: str, output_dir: str, progress_callback: Callable[[DownloadProgress], None]) -> bool:
-        """Downloads the video using the specified format expression to the chosen directory."""
-        
-        os.makedirs(output_dir, exist_ok=True)
-        
+    def download(self, url: str, format_id: str, output_dir: str, progress_callback) -> bool:
         def yt_dlp_hook(d):
             if d['status'] == 'downloading':
-                percentage_str = d.get('_percent_str', '0%').replace('\x1b[0;94m', '').replace('\x1b[0m', '').strip('%')
-                try:
-                    percentage = float(percentage_str)
-                except ValueError:
-                    percentage = 0.0
+                total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+                downloaded_bytes = d.get('downloaded_bytes', 0)
+                percentage = (downloaded_bytes / total_bytes * 100) if total_bytes > 0 else 0
+                speed = d.get('speed', 0)
+                eta = d.get('eta', 0)
+                
+                speed_mb = speed / 1024 / 1024 if speed else 0
+                speed_str = f"{speed_mb:.2f} MB/s"
+                eta_str = f"{eta}s" if eta else "Unknown"
 
                 progress = DownloadProgress(
                     status="downloading",
                     percentage=percentage,
-                    speed_str=d.get('_speed_str', 'N/A').replace('\x1b[0;92m', '').replace('\x1b[0m', ''),
-                    eta_str=d.get('_eta_str', 'N/A').replace('\x1b[0;93m', '').replace('\x1b[0m', '')
+                    speed_str=speed_str,
+                    eta_str=eta_str
                 )
                 progress_callback(progress)
-            elif d['status'] == 'finished':
-                progress_callback(DownloadProgress(status="finished", percentage=100.0, speed_str="0", eta_str="00:00"))
 
-        download_format = 'bestvideo+bestaudio/best' if format_id == 'best' else format_id
-
-        # --- CALCOLO PERCORSO DINAMICO (Supporto PyInstaller .exe) ---
         if getattr(sys, 'frozen', False):
-            # Se il programma è eseguito come file .exe (PyInstaller usa _MEIPASS)
             project_root = sys._MEIPASS
         else:
-            # Se il programma è eseguito normalmente da Python in VS Code
             current_file_path = os.path.abspath(__file__)
             core_dir = os.path.dirname(current_file_path)
             app_dir = os.path.dirname(core_dir)
@@ -119,7 +136,7 @@ class DownloadEngine:
         ffmpeg_absolute_path = os.path.join(project_root, 'bin')
 
         ydl_opts = {
-            'format': download_format,
+            'format': format_id,
             'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'), 
             'quiet': True,
             'no_warnings': True,
@@ -136,5 +153,5 @@ class DownloadEngine:
                 ydl.download([url])
             return True
         except Exception as e:
-            progress_callback(DownloadProgress(status="error", percentage=0, speed_str="", eta_str="", error_message=str(e)))
+            progress_callback(DownloadProgress(status="error", error_message=str(e)))
             return False

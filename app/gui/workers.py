@@ -1,6 +1,7 @@
 from PySide6.QtCore import QThread, Signal
 from app.core.downloader import DownloadEngine
 from app.models.domain import VideoMetadata, DownloadProgress
+import traceback
 
 class AnalyzeWorker(QThread):
     """Runs the URL analysis in a background thread to prevent UI freezing."""
@@ -17,6 +18,7 @@ class AnalyzeWorker(QThread):
             metadata = self.engine.analyze(self.url)
             self.finished_signal.emit(metadata)
         except Exception as e:
+            traceback.print_exc()
             self.error_signal.emit(str(e))
 
 
