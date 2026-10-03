@@ -1,24 +1,35 @@
-# Python cache
-__pycache__/
+Python cache
+
+pycache/
 *.py[cod]
 *$py.class
 
-# Virtual environments
+Virtual environments
+
 venv/
 env/
 .venv/
 
-# Downloaded media
+Downloaded media
+
 *.mp4
 *.webm
 *.mkv
 *.mp3
 *.m4a
 
-# OS files
+OS files
+
 .DS_Store
 Thumbs.db
 
-# Binaries and executables
+Binaries and executables
+
 bin/
 *.exe
+
+PyInstaller build artifacts
+
+build/
+dist/
+*.spec

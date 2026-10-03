@@ -1,3 +1,4 @@
+import sys
 import os
 import yt_dlp
 from typing import Callable, Optional
@@ -26,25 +27,20 @@ class DownloadEngine:
             vcodec = f.get('vcodec')
             acodec = f.get('acodec')
             
-            # Controlliamo se il formato contiene video, audio, o entrambi
             has_video = (vcodec != 'none' and vcodec is not None)
             has_audio = (acodec != 'none' and acodec is not None)
             
             if not has_video and not has_audio:
-                continue # Saltiamo formati strani come immagini o storyboard
+                continue
 
             height = f.get('height')
             
-            # Determiniamo la categoria del formato
             if not has_video and has_audio:
                 res_key = "Audio Only"
-                # Per l'audio, diciamo a yt-dlp di scaricare solo questo ID
                 download_expr = f.get('format_id')
-                ext = f.get('ext', 'm4a') # Spesso l'audio nativo è m4a o webm
+                ext = f.get('ext', 'm4a')
             elif height:
                 res_key = f"{height}p"
-                # Se il video non ha l'audio integrato, creiamo un'espressione
-                # che ordini a yt-dlp di scaricare il video + il miglior audio disponibile
                 if not has_audio:
                     download_expr = f"{f.get('format_id')}+bestaudio/best"
                 else:
@@ -64,11 +60,8 @@ class DownloadEngine:
                 has_audio=has_audio
             )
             
-            # yt-dlp elenca i formati dal peggiore al migliore.
-            # Sovrascrivendo la chiave nel dizionario, teniamo solo il migliore per ogni risoluzione.
             formats_dict[res_key] = fmt
 
-        # Riordiniamo la lista per presentarla all'utente dalla qualità più bassa alla più alta
         ordered_keys = [
             "Audio Only", "144p", "240p", "360p", "480p", 
             "720p", "1080p", "1440p", "2160p", "Standard"
@@ -112,13 +105,17 @@ class DownloadEngine:
 
         download_format = 'bestvideo+bestaudio/best' if format_id == 'best' else format_id
 
-        # --- NOVITÀ: Calcoliamo il percorso assoluto esatto della cartella bin ---
-        # __file__ è questo file (app/core/downloader.py)
-        # Saliamo di tre cartelle per arrivare alla root del progetto, poi aggiungiamo 'bin'
-        current_file_path = os.path.abspath(__file__)
-        core_dir = os.path.dirname(current_file_path)
-        app_dir = os.path.dirname(core_dir)
-        project_root = os.path.dirname(app_dir)
+        # --- CALCOLO PERCORSO DINAMICO (Supporto PyInstaller .exe) ---
+        if getattr(sys, 'frozen', False):
+            # Se il programma è eseguito come file .exe (PyInstaller usa _MEIPASS)
+            project_root = sys._MEIPASS
+        else:
+            # Se il programma è eseguito normalmente da Python in VS Code
+            current_file_path = os.path.abspath(__file__)
+            core_dir = os.path.dirname(current_file_path)
+            app_dir = os.path.dirname(core_dir)
+            project_root = os.path.dirname(app_dir)
+
         ffmpeg_absolute_path = os.path.join(project_root, 'bin')
 
         ydl_opts = {
