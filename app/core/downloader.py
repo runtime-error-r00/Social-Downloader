@@ -130,8 +130,8 @@ class DownloadEngine:
             'progress_hooks': [yt_dlp_hook],
             'extractor_args': {'youtube': ['player_client=android,web']},
             'merge_output_format': 'mp4',
-            # Passiamo il percorso assoluto calcolato dinamicamente
-            'ffmpeg_location': ffmpeg_absolute_path  
+            'ffmpeg_location': ffmpeg_absolute_path,
+            'restrictfilenames': True 
         }
 
         try:
