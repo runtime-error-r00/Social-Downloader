@@ -1,6 +1,6 @@
 # Social Downloader
 
-A clean, modern, and open-source desktop application to download videos and audio from various social platforms (YouTube, Instagram, TikTok, X, etc.). 
+A clean, modern, and open-source desktop application to download videos and audio from various social platforms (YouTube, Instagram, X). 
 
 **The Philosophy:** I was tired of searching for sketchy online downloaders filled with ads, pop-ups, and daily limits just to save a simple video. So, I built my own. It just works.
 
